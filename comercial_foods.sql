@@ -3,9 +3,9 @@
 -- https://www.phpmyadmin.net/
 --
 -- Servidor: 127.0.0.1
--- Tiempo de generación: 23-05-2024 a las 16:57:49
+-- Tiempo de generación: 30-05-2024 a las 16:54:59
 -- Versión del servidor: 10.4.32-MariaDB
--- Versión de PHP: 8.1.25
+-- Versión de PHP: 8.2.12
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
@@ -35,42 +35,27 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `actualiza_credito` ()   BEGIN
     WHERE saldo<= 0;
 END$$
 
-CREATE DEFINER=`root`@`localhost` PROCEDURE `actualiza_entrada` ()   BEGIN
-DECLARE var_producod int;
-DECLARE var_cantidad int;
+CREATE DEFINER=`root`@`localhost` PROCEDURE `actualiza_netocartera` ()   BEGIN
+DECLARE var_codfac int;
+DECLARE var_neto decimal(10,0);
 DECLARE var_final int DEFAULT 0;
-DECLARE c1 CURSOR FOR SELECT producto_cod, cantidad FROM entrada_detalle;
-DECLARE CONTINUE HANDLER FOR NOT FOUND SET var_final=1;
-OPEN c1;
-bucle: LOOP
-	FETCH c1 INTO var_producod, var_cantidad; -- empieza desde 1er registro de consulta factura_detalle
-    IF var_final=1 THEN
-    LEAVE bucle;
-    END if; 
-    UPDATE productos SET existencia=existencia+var_cantidad
-    WHERE cod_producto=var_producod;
-   END LOOP bucle;
-   SELECT cod_producto, existencia FROM productos;
-CLOSE c1;
-END$$
-
-CREATE DEFINER=`root`@`localhost` PROCEDURE `actualiza_salida` ()   BEGIN 
-DECLARE var_producod int;
-DECLARE var_cantidad int;
-DECLARE var_final int DEFAULT 0;
-DECLARE c1 CURSOR FOR SELECT producto_cod,cantidad FROM factura_detalle;
+DECLARE c1 CURSOR FOR SELECT factura_cod,SUM(neto) from factura_detalle
+GROUP BY factura_cod;
 DECLARE CONTINUE HANDLER FOR NOT FOUND SET var_final=1;
 OPEN c1;
 bucle:LOOP
-FETCH c1 INTO var_producod, var_cantidad; -- empieza desde 1er registro de consulta factura_detalle
-IF var_final=1 THEN
-LEAVE bucle;
-END IF;
-UPDATE productos SET existencia=existencia-var_cantidad
-WHERE cod_producto=var_producod;
-END LOOP bucle;
-SELECT cod_producto, existencia FROM productos;
-CLOSE c1;
+    FETCH c1 INTO var_codfac,var_neto;
+    IF var_final=1 THEN
+    LEAVE bucle;
+    END IF;
+    -- BUSCA FACTURA EN CARTERA
+     
+     UPDATE cartera SET neto=var_neto
+     WHERE cod_factura=var_codfac;
+     
+     END LOOP bucle;
+     SELECT cod_factura, neto FROM cartera;
+     CLOSE c1;
 END$$
 
 CREATE DEFINER=`root`@`localhost` PROCEDURE `calcula_nomina` (IN `fechanom` DATE, IN `cod_emp` INT, IN `salario` DECIMAL(10,0), IN `diastb` INT, IN `nhrn` INT, IN `presta` DECIMAL(10,0))   BEGIN
@@ -235,15 +220,14 @@ CREATE TABLE `cartera` (
 
 INSERT INTO `cartera` (`cod_factura`, `cliente_cod`, `fecha_factura`, `forma_pago`, `total_neto`, `fecha_vcto`, `dias_mora`, `abonos`, `pagada`) VALUES
 (10, 9, '2023-08-08', 'credito', 281700, '2023-09-07', 231, 100000, 'N'),
-(11, 9, '2023-08-08', 'credito', 523500, '2023-09-07', 231, 0, 'N'),
+(11, 9, '2023-08-08', 'credito', 523500, '2023-09-07', 231, 523500, 'S'),
 (12, 10, '2023-08-08', 'credito', 782000, '2023-09-07', 231, 0, 'N'),
 (13, 10, '2023-08-09', 'credito', 570300, '2023-09-08', 230, 0, 'N'),
 (19, 13, '2023-08-12', 'credito', 416250, '2023-09-11', 227, 0, 'N'),
 (20, 14, '2023-08-13', 'credito', 841950, '2023-09-12', 226, 0, 'N'),
 (30, 9, '2023-08-18', 'credito', 28000, '2023-09-17', 221, 0, 'N'),
 (34, 8, '2023-08-19', 'credito', 285750, '2023-09-18', 220, 0, 'N'),
-(39, 12, '2023-08-22', 'credito', 1046200, '2023-09-21', 217, 0, 'N'),
-(41, 9, '2023-10-25', 'credito', NULL, '2023-11-24', 181, 0, 'N');
+(39, 12, '2023-08-22', 'credito', 1046200, '2023-09-21', 217, 0, 'N');
 
 -- --------------------------------------------------------
 
@@ -508,8 +492,7 @@ INSERT INTO `entrada_cabeza` (`cod_entrada`, `fecha_entrada`, `proveedor_cod`, `
 (17, '2023-08-10', 1, 1, 'efectivo', 4),
 (18, '2023-08-11', 1, 1, 'efectivo', 4),
 (19, '2023-08-11', 7, 1, 'efectivo', 2),
-(20, '2023-08-11', 5, 1, 'efectivo', 2),
-(21, '2023-08-12', 2, 1, 'efectivo', 2);
+(20, '2023-08-11', 5, 1, 'efectivo', 2);
 
 -- --------------------------------------------------------
 
@@ -579,22 +562,7 @@ INSERT INTO `entrada_detalle` (`cod_edetalle`, `entrada_cod`, `producto_cod`, `c
 (46, 20, 7, 140, 4500),
 (47, 20, 20, 150, 6000),
 (48, 20, 21, 200, 8000),
-(49, 20, 22, 300, 2100),
-(54, 21, 1, 100, 2000),
-(55, 21, 2, 100, 7000),
-(56, 21, 14, 100, 9000),
-(57, 21, 16, 100, 8000);
-
---
--- Disparadores `entrada_detalle`
---
-DELIMITER $$
-CREATE TRIGGER `entrada_inventario` AFTER INSERT ON `entrada_detalle` FOR EACH ROW BEGIN
-UPDATE productos SET existencia=productos.existencia+NEW.cantidad
-    WHERE productos.cod_producto=NEW.producto_cod;
-END
-$$
-DELIMITER ;
+(49, 20, 22, 300, 2100);
 
 -- --------------------------------------------------------
 
@@ -654,22 +622,7 @@ INSERT INTO `factura_cabeza` (`cod_factura`, `fecha_factura`, `cliente_cod`, `em
 (36, '2023-08-20', 15, 3, 'efectivo', 1),
 (37, '2023-08-21', 16, 6, 'nequi', 1),
 (38, '2023-08-21', 11, 8, 'efectivo', 1),
-(39, '2023-08-22', 12, 6, 'credito', 1),
-(40, '2023-10-25', 8, 5, 'efectivo', 1),
-(41, '2023-10-25', 9, 6, 'credito', 1);
-
---
--- Disparadores `factura_cabeza`
---
-DELIMITER $$
-CREATE TRIGGER `actualiza_cartera` AFTER INSERT ON `factura_cabeza` FOR EACH ROW BEGIN 
-IF NEW.forma_pago="credito" AND NEW.tipomov_cod=1 THEN
-INSERT INTO cartera(cod_factura, cliente_cod, fecha_factura, forma_pago)
-VALUES(NEW.cod_factura, NEW.cliente_cod,NEW.fecha_factura,NEW.forma_pago);
-END IF;
-END
-$$
-DELIMITER ;
+(39, '2023-08-22', 12, 6, 'credito', 1);
 
 -- --------------------------------------------------------
 
@@ -787,23 +740,7 @@ INSERT INTO `factura_detalle` (`cod_facdetalle`, `factura_cod`, `producto_cod`, 
 (92, 39, 24, 24, 4400, 0.00),
 (93, 39, 26, 10, 2800, 0.00),
 (94, 39, 25, 14, 5200, 0.00),
-(95, 39, 28, 20, 7000, 0.00),
-(96, 40, 1, 50, 3000, 0.10),
-(97, 40, 1, 50, 3000, 0.10),
-(98, 40, 2, 50, 8000, 0.10),
-(99, 40, 3, 50, 3800, 0.10),
-(100, 40, 4, 50, 3000, 0.10);
-
---
--- Disparadores `factura_detalle`
---
-DELIMITER $$
-CREATE TRIGGER `salida_inventario` AFTER INSERT ON `factura_detalle` FOR EACH ROW BEGIN 
-UPDATE productos SET existencia=productos.existencia-NEW.cantidad
-    WHERE productos.cod_producto=NEW.producto_cod;
-END
-$$
-DELIMITER ;
+(95, 39, 28, 20, 7000, 0.00);
 
 -- --------------------------------------------------------
 
@@ -863,34 +800,34 @@ CREATE TABLE `productos` (
 --
 
 INSERT INTO `productos` (`cod_producto`, `descripcion`, `valor_compra`, `valor_venta`, `existencia`, `nro_lote`, `fecha_fabricacion`, `fecha_vencimiento`, `categoria_cod`, `proveedor_cod`) VALUES
-(1, 'Galletas Festival Bsax12', 2000, 3000, 4180, 4089, '2023-04-01', '2024-04-01', 3, 2),
-(2, 'Galletas Ducales taco', 7000, 8000, 6175, 4088, '2023-04-01', '2024-04-01', 3, 2),
-(3, 'Bom bom bum barrax50', 3000, 3800, 4412, 4081, '2023-05-01', '2024-05-01', 4, 3),
-(4, 'Pan Blanco tajado', 4500, 5500, 6273, 4080, '2023-02-01', '2024-02-01', 2, 4),
-(5, 'Salsa de tomate frasco', 7150, 7500, 7223, 4084, '2023-06-01', '2024-06-01', 5, 7),
-(6, 'Jugo Fresa frasco', 2500, 3500, 6480, 4086, '2023-03-01', '2024-03-01', 6, 6),
-(7, 'Leche pasteurizada bsa', 4500, 5500, 7574, 4080, '2023-03-01', '2024-03-01', 1, 5),
-(8, 'Ranchera', 5500, 7150, 10245, 4070, '2023-08-30', '2023-09-20', 7, 8),
-(9, 'Ranchera', 7500, 9350, 9684, 4071, '2023-08-30', '2023-09-20', 7, 8),
-(10, 'Ranchera', 6500, 8250, 9106, 4072, '2023-08-30', '2023-09-20', 7, 8),
-(11, 'Salsa de soya frasco', 6050, 6500, 6865, 4079, '2023-08-20', '2024-09-20', 5, 7),
-(12, 'Salsa mayonesa frasco', 6050, 6500, 8061, 4079, '2023-08-20', '2024-09-20', 5, 7),
-(13, 'Salsa rosada frasco', 8250, 8500, 7581, 4079, '2023-08-20', '2024-09-20', 5, 7),
-(14, 'Galletas Recreo bsa', 9000, 10000, 8477, 4077, '2023-08-20', '2024-08-20', 3, 2),
-(15, 'Galletas Ducales taco', 7200, 8200, 9381, 4077, '2023-08-20', '2024-08-20', 3, 2),
-(16, 'Galletas Saltin taco', 8000, 9000, 10430, 4077, '2023-08-20', '2024-08-20', 3, 2),
-(17, 'Menta Helada Bsa', 6300, 7300, 5601, 4076, '2023-09-10', '2024-09-10', 4, 3),
-(18, 'Confites Choco Bsa', 5600, 6600, 3875, 4076, '2023-09-10', '2024-09-10', 4, 3),
-(19, 'Arequipe mum tarro', 2800, 3880, 4828, 4076, '2023-09-10', '2024-09-10', 4, 3),
-(20, 'Queso Costeño pq', 6000, 7000, 3082, 4075, '2023-09-10', '2024-09-10', 1, 5),
-(21, 'Leche Entera bsa', 8000, 9000, 5128, 4075, '2023-09-10', '2024-09-10', 1, 5),
-(22, 'Yogurt Dulce tarro', 2100, 3100, 6223, 4075, '2023-09-10', '2024-09-10', 1, 5),
-(23, 'Pan mogolla x 10 bsa', 2500, 3500, 5438, 4074, '2023-09-10', '2024-09-10', 2, 4),
-(24, 'Ponque Bimbox5 bsa', 3400, 4400, 3722, 4074, '2023-09-10', '2024-09-10', 2, 4),
-(25, 'Brownie x 5 bsa', 4200, 5200, 7200, 4074, '2023-09-10', '2024-09-10', 2, 4),
-(26, 'Agua Cristal bote', 1800, 2800, 8752, 4073, '2023-09-10', '2024-09-10', 6, 6),
-(27, 'Jugo Mora Frasco', 2500, 3500, 6520, 4073, '2023-09-10', '2024-09-10', 6, 6),
-(28, 'Pony Malta litro', 6000, 7000, 8482, 4073, '2023-09-10', '2024-09-10', 6, 6);
+(1, 'Galletas Festival Bsax12', 2000, 3000, 4000, 4089, '2023-04-01', '2024-04-01', 3, 2),
+(2, 'Galletas Ducales taco', 7000, 8000, 5000, 4088, '2023-04-01', '2024-04-01', 3, 2),
+(3, 'Bom bom bum barrax50', 3000, 3800, 3500, 4081, '2023-05-01', '2024-05-01', 4, 3),
+(4, 'Pan Blanco tajado', 4500, 5500, 5500, 4080, '2023-02-01', '2024-02-01', 2, 4),
+(5, 'Salsa de tomate frasco', 7150, 7500, 6000, 4084, '2023-06-01', '2024-06-01', 5, 7),
+(6, 'Jugo Fresa frasco', 2500, 3500, 6500, 4086, '2023-03-01', '2024-03-01', 6, 6),
+(7, 'Leche pasteurizada bsa', 4500, 5500, 7500, 4080, '2023-03-01', '2024-03-01', 1, 5),
+(8, 'Ranchera', 5500, 7150, 8500, 4070, '2023-08-30', '2023-09-20', 7, 8),
+(9, 'Ranchera', 7500, 9350, 9500, 4071, '2023-08-30', '2023-09-20', 7, 8),
+(10, 'Ranchera', 6500, 8250, 8500, 4072, '2023-08-30', '2023-09-20', 7, 8),
+(11, 'Salsa de soya frasco', 6050, 6500, 6500, 4079, '2023-08-20', '2024-09-20', 5, 7),
+(12, 'Salsa mayonesa frasco', 6050, 6500, 8000, 4079, '2023-08-20', '2024-09-20', 5, 7),
+(13, 'Salsa rosada frasco', 8250, 8500, 7600, 4079, '2023-08-20', '2024-09-20', 5, 7),
+(14, 'Galletas Recreo bsa', 9000, 10000, 8200, 4077, '2023-08-20', '2024-08-20', 3, 2),
+(15, 'Galletas Ducales taco', 7200, 8200, 9000, 4077, '2023-08-20', '2024-08-20', 3, 2),
+(16, 'Galletas Saltin taco', 8000, 9000, 10000, 4077, '2023-08-20', '2024-08-20', 3, 2),
+(17, 'Menta Helada Bsa', 6300, 7300, 5500, 4076, '2023-09-10', '2024-09-10', 4, 3),
+(18, 'Confites Choco Bsa', 5600, 6600, 3700, 4076, '2023-09-10', '2024-09-10', 4, 3),
+(19, 'Arequipe mum tarro', 2800, 3880, 4500, 4076, '2023-09-10', '2024-09-10', 4, 3),
+(20, 'Queso Costeño pq', 6000, 7000, 3000, 4075, '2023-09-10', '2024-09-10', 1, 5),
+(21, 'Leche Entera bsa', 8000, 9000, 5000, 4075, '2023-09-10', '2024-09-10', 1, 5),
+(22, 'Yogurt Dulce tarro', 2100, 3100, 6000, 4075, '2023-09-10', '2024-09-10', 1, 5),
+(23, 'Pan mogolla x 10 bsa', 2500, 3500, 5000, 4074, '2023-09-10', '2024-09-10', 2, 4),
+(24, 'Ponque Bimbox5 bsa', 3400, 4400, 3500, 4074, '2023-09-10', '2024-09-10', 2, 4),
+(25, 'Brownie x 5 bsa', 4200, 5200, 7000, 4074, '2023-09-10', '2024-09-10', 2, 4),
+(26, 'Agua Cristal bote', 1800, 2800, 8500, 4073, '2023-09-10', '2024-09-10', 6, 6),
+(27, 'Jugo Mora Frasco', 2500, 3500, 6300, 4073, '2023-09-10', '2024-09-10', 6, 6),
+(28, 'Pony Malta litro', 6000, 7000, 8400, 4073, '2023-09-10', '2024-09-10', 6, 6);
 
 -- --------------------------------------------------------
 
@@ -1250,25 +1187,25 @@ ALTER TABLE `empleado`
 -- AUTO_INCREMENT de la tabla `entrada_cabeza`
 --
 ALTER TABLE `entrada_cabeza`
-  MODIFY `cod_entrada` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=22;
+  MODIFY `cod_entrada` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=21;
 
 --
 -- AUTO_INCREMENT de la tabla `entrada_detalle`
 --
 ALTER TABLE `entrada_detalle`
-  MODIFY `cod_edetalle` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=58;
+  MODIFY `cod_edetalle` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=50;
 
 --
 -- AUTO_INCREMENT de la tabla `factura_cabeza`
 --
 ALTER TABLE `factura_cabeza`
-  MODIFY `cod_factura` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=42;
+  MODIFY `cod_factura` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=40;
 
 --
 -- AUTO_INCREMENT de la tabla `factura_detalle`
 --
 ALTER TABLE `factura_detalle`
-  MODIFY `cod_facdetalle` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=101;
+  MODIFY `cod_facdetalle` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=96;
 
 --
 -- AUTO_INCREMENT de la tabla `nomina`
@@ -1360,6 +1297,16 @@ ALTER TABLE `factura_detalle`
 ALTER TABLE `productos`
   ADD CONSTRAINT `productos_ibfk_1` FOREIGN KEY (`categoria_cod`) REFERENCES `categoria` (`cod_categoria`),
   ADD CONSTRAINT `productos_ibfk_2` FOREIGN KEY (`proveedor_cod`) REFERENCES `proveedor` (`cod_proveedor`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+DELIMITER $$
+--
+-- Eventos
+--
+CREATE DEFINER=`root`@`localhost` EVENT `actualiza_estadocartera` ON SCHEDULE EVERY 1 MINUTE STARTS '2024-05-30 08:16:33' ON COMPLETION PRESERVE ENABLE DO CALL actualiza_credito$$
+
+CREATE DEFINER=`root`@`localhost` EVENT `event_netocartera` ON SCHEDULE EVERY 1 SECOND STARTS '2024-05-30 09:23:49' ON COMPLETION PRESERVE ENABLE DO CALL actualiza_netocartera$$
+
+DELIMITER ;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
